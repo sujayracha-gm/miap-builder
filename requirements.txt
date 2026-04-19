@@ -1,0 +1,11 @@
+streamlit>=1.32
+folium>=0.15
+streamlit-folium>=0.18
+geopandas>=0.14
+shapely>=2.0
+contextily>=1.5
+matplotlib>=3.8
+matplotlib-scalebar>=0.8
+pandas>=2.1
+requests>=2.31
+pyproj>=3.6
