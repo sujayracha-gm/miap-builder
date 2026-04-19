@@ -49,6 +49,77 @@ st.markdown(
 st.title("🗺️ River & Site Mapper")
 st.caption("Build publication-quality maps for proposals — no GIS skills needed.")
 
+with st.expander("📖 How to use this app", expanded=False):
+    st.markdown(
+        """
+        ### Quick workflow
+
+        **1. Set the map area** *(sidebar)*
+        Search a city or address (e.g. *Pasadena, CA*) or paste coordinates as `lat, lon`
+        (e.g. `34.05, -118.24`). For tighter framing, search a more specific location.
+
+        **2. Add rivers** *(sidebar)*
+        - **Get rivers (US)** — USGS NHDPlus, high quality, US only.
+        - **Get rivers (worldwide)** — OpenStreetMap, slower but works globally.
+        After loading, expand *Filter to specific rivers* to keep only the ones you want.
+
+        **3. Add a watershed boundary** *(US only)*
+        On the **Preview** tab, click any point on the map (ideally on a river).
+        Then in the sidebar, click *Fetch watershed at clicked point* — the upstream
+        watershed for that location loads automatically.
+
+        **4. Add markers** *(Markers tab)*
+        Three ways:
+        - **Quick add** — one marker at a time via the form.
+        - **Paste a table** — copy from Excel/Google Sheets with columns
+          `name, lat, lon, category` (header row required). Tab- or comma-separated both work.
+        - **Edit the table directly** — click any cell to edit, or use the "+" at the bottom
+          to add a row. Check the box on the left of a row and press *Delete* to remove it.
+
+        **5. Style your markers** *(Markers tab → 🎨 Category styles)*
+        Pick the shape (star, circle, square, triangle, diamond), color, and size for each
+        category. Markers in the same category share a style.
+
+        **6. Position labels** *(Markers tab table)*
+        - **Label anchor** — coarse position relative to the marker
+          (right, left, above, below, above-right, etc.).
+        - **Label x-offset / y-offset** — fine-tune in **meters**. Positive x pushes right,
+          positive y pushes up. Use this to nudge labels apart when they overlap.
+
+        **7. Preview** *(Preview tab)*
+        - The interactive map shows your markers with popups (click a marker to see details).
+        - Click *🖼️ Render high-res preview* to see what the exported map will look like.
+
+        **8. Export** *(Export tab)*
+        - Toggle legend, scale bar, north arrow on/off.
+        - Pick a basemap style.
+        - Choose DPI: 300 for documents, 600 for print-quality.
+        - Click *📥 Generate PNG*, then *⬇️ Download PNG*.
+
+        ---
+
+        ### Saving and resuming work
+
+        On the **Export** tab, *Save project to JSON* downloads everything (markers, rivers,
+        watershed, styles) into one file. Use *Load project from JSON* to pick up exactly
+        where you left off — useful when iterating on the same map across days.
+
+        ---
+
+        ### Tips
+
+        - **Labels overlap?** Set different *Label anchor* values, or use small x/y offsets
+          (try 1500–3000 meters at first; the right value depends on map scale).
+        - **Map area too big or small?** Re-search with a more specific location.
+          *Pasadena* is tighter than *California*.
+        - **River fetch is slow or fails?** Try a smaller area, or switch between
+          USGS and OpenStreetMap.
+        - **Watershed fetch fails?** Make sure your clicked point is in the US and
+          near a known river. Click as close to a stream as possible.
+        - **Want to change the map area?** Re-search in the sidebar — your markers stay put.
+        """
+    )
+
 # ---------------- Session state defaults ----------------
 def init_state():
     defaults = {
