@@ -52,7 +52,7 @@ That's it. Bookmark the URL and share it with anyone.
 1. **Sidebar → Map area** — search a city/address, or paste `lat, lon` (e.g. `34.05, -118.24`).
 2. **Sidebar → Add layers** — click "Get rivers (US)" for USGS data, or "Get rivers (worldwide)" for OpenStreetMap.
 3. **Markers tab** — add markers via the quick-add form, by pasting a table from Excel, or by editing the table directly.
-4. **Preview tab** — see the interactive map. Click any point on the map to set a watershed outlet (US only — fetch via sidebar). Then click "Render high-res preview" to see the proposal-quality version.
+4. **Preview tab** — see the interactive map. Click any point on the map to set a watershed outlet (then add it from the sidebar — you can add as many watersheds as you need, each one is removable individually). Then click "Render high-res preview" to see the proposal-quality version.
 5. **Export tab** — toggle legend / scale bar / north arrow, choose DPI (300 is good for documents, 600 for print), and download the PNG.
 
 ### Tips for label placement
@@ -81,6 +81,7 @@ If you want to change anything in the code:
 **Watershed fetch fails**
 - USGS watersheds are US-only. Outside the US, the watershed feature won't work.
 - Try clicking closer to a known river — the API needs a point near a stream.
+- You can add multiple watersheds to the same map — click on the map, name it, add it, then repeat for the next one.
 
 **Labels overlap**
 - Adjust the **label_dx** / **label_dy** columns in the marker table (in meters), or change the **label_pos** anchor.
