@@ -61,6 +61,12 @@ In the markers table:
 - **Label anchor** dropdown picks the side (right, above, below-left, etc.)
 - **Label x-offset** and **y-offset** are in *meters* — type a positive number to push right/up, negative to push left/down. This is how to nudge labels to avoid overlaps.
 
+### Marker styling — important note
+
+The **interactive map** on the Preview tab always shows markers as simple circles so they're easy to click and inspect. Your custom **shape, color, and size** only show up in the **rendered preview** (button at the bottom of the Preview tab) and the **exported PNG** (Export tab).
+
+After changing any marker style or label position, click *🖼️ Render high-res preview* (or re-generate the PNG) to see the update.
+
 ### Save your work
 
 The Export tab has **Save project to JSON** — download a single file containing all your markers, rivers, watershed, and styles. To pick up where you left off, use **Load project from JSON**.

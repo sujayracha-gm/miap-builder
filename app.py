@@ -86,6 +86,11 @@ with st.expander("📖 How to use this app", expanded=False):
         Pick the shape (star, circle, square, triangle, diamond), color, and size for each
         category. Markers in the same category share a style.
 
+        > 💡 **Note:** The interactive map on the Preview tab always shows markers as simple
+        > circles for clickability. Your custom shapes, colors, and sizes only appear in
+        > the **rendered preview** and the **exported PNG**. After changing any style,
+        > click *🖼️ Render high-res preview* (or re-export) to see the update.
+
         **6. Position labels** *(Markers tab table)*
         - **Label anchor** — coarse position relative to the marker
           (right, left, above, below, above-right, etc.).
@@ -556,15 +561,22 @@ with tab_data:
             with c1:
                 st.write(f"**{cat}**")
             with c2:
-                style["shape"] = st.selectbox(
+                new_shape = st.selectbox(
                     "Shape", ["star", "circle", "square", "triangle", "diamond"],
                     index=["star","circle","square","triangle","diamond"].index(style["shape"]),
                     key=f"shape_{cat}",
                 )
             with c3:
-                style["color"] = st.color_picker("Color", style["color"], key=f"color_{cat}")
+                new_color = st.color_picker("Color", style["color"], key=f"color_{cat}")
             with c4:
-                style["size"] = st.number_input("Size", 50, 1000, style["size"], step=20, key=f"size_{cat}")
+                new_size = st.number_input("Size", 50, 1000, style["size"], step=20, key=f"size_{cat}")
+            # Explicitly write changes back to session state (Streamlit doesn't
+            # auto-propagate mutations inside nested dicts).
+            st.session_state.category_styles[cat] = {
+                "shape": new_shape,
+                "color": new_color,
+                "size": new_size,
+            }
 
 # ---------------- Preview tab ----------------
 with tab_preview:
