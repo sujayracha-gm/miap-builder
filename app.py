@@ -82,6 +82,14 @@ with st.expander("📖 How to use this app", expanded=False):
         - **Edit the table directly** — click any cell to edit, or use the "+" at the bottom
           to add a row. Check the box on the left of a row and press *Delete* to remove it.
 
+        > 💡 **About the category column when pasting:** The category text just needs to
+        > roughly match one of the categories defined in *🎨 Category styles* (defaults:
+        > "Treatment facility", "Sample site", "Other"). Capitalization and extra spacing
+        > don't matter — `treatment facility`, `Treatment Facility`, and `TREATMENT FACILITY`
+        > all work. Anything that doesn't match gets set to "Other" and a warning will tell
+        > you which values weren't recognized. Accepted column header names: `category`,
+        > `type`, or `cat`.
+
         **5. Style your markers** *(Markers tab → 🎨 Category styles)*
         Pick the shape (star, circle, square, triangle, diamond), color, and size for each
         category. Markers in the same category share a style.
@@ -456,232 +464,7 @@ with st.sidebar:
                 st.session_state.watersheds = []
                 st.rerun()
 
-# ---------------- Main area: tabs ----------------
-tab_data, tab_preview, tab_export = st.tabs(["📍 Markers", "🗺️ Preview & adjust", "📥 Export"])
-
-# ---------------- Markers tab ----------------
-with tab_data:
-    st.subheader("Markers")
-    st.caption(
-        "Add facilities, sample sites, or anything you want labeled. "
-        "Edit cells directly. Use the **Preview** tab to drag markers and labels."
-    )
-
-    # Quick add
-    with st.expander("➕ Quick add (one at a time)"):
-        c1, c2, c3, c4 = st.columns([2, 1, 1, 1.5])
-        with c1:
-            new_name = st.text_input("Name", key="new_name")
-        with c2:
-            new_lat = st.number_input("Lat", value=0.0, format="%.5f", key="new_lat")
-        with c3:
-            new_lon = st.number_input("Lon", value=0.0, format="%.5f", key="new_lon")
-        with c4:
-            new_cat = st.selectbox(
-                "Category",
-                options=list(st.session_state.category_styles.keys()),
-                key="new_cat",
-            )
-        if st.button("Add marker"):
-            if new_name:
-                new_row = pd.DataFrame([{
-                    "name": new_name,
-                    "lat": new_lat,
-                    "lon": new_lon,
-                    "category": new_cat,
-                    "label_dx": 0.0,
-                    "label_dy": 0.0,
-                    "label_pos": "right",
-                }])
-                st.session_state.markers = pd.concat(
-                    [st.session_state.markers, new_row], ignore_index=True
-                )
-                st.rerun()
-
-    # Bulk paste / CSV
-    with st.expander("📋 Paste a table (name, lat, lon, category)"):
-        st.caption("Paste from Excel/Google Sheets — first row is header.")
-        pasted = st.text_area("Paste here", height=150, key="paste_area")
-        if st.button("Add all"):
-            try:
-                df_new = pd.read_csv(io.StringIO(pasted), sep=None, engine="python")
-                # Normalize columns
-                df_new.columns = [c.strip().lower() for c in df_new.columns]
-                col_map = {
-                    "name": "name", "label": "name", "site": "name",
-                    "lat": "lat", "latitude": "lat",
-                    "lon": "lon", "lng": "lon", "long": "lon", "longitude": "lon",
-                    "category": "category", "type": "category",
-                }
-                df_new = df_new.rename(columns={c: col_map.get(c, c) for c in df_new.columns})
-                if "category" not in df_new.columns:
-                    df_new["category"] = "Other"
-                df_new["label_dx"] = 0.0
-                df_new["label_dy"] = 0.0
-                df_new["label_pos"] = "right"
-                df_new = df_new[["name", "lat", "lon", "category", "label_dx", "label_dy", "label_pos"]]
-                st.session_state.markers = pd.concat(
-                    [st.session_state.markers, df_new], ignore_index=True
-                )
-                st.success(f"Added {len(df_new)} markers.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Couldn't parse: {e}")
-
-    # Editable table
-    st.write("**All markers** (edit any cell, or check the box and click Delete to remove rows)")
-    edited = st.data_editor(
-        st.session_state.markers,
-        num_rows="dynamic",
-        column_config={
-            "name": st.column_config.TextColumn("Name", width="medium"),
-            "lat": st.column_config.NumberColumn("Latitude", format="%.5f"),
-            "lon": st.column_config.NumberColumn("Longitude", format="%.5f"),
-            "category": st.column_config.SelectboxColumn(
-                "Category", options=list(st.session_state.category_styles.keys())
-            ),
-            "label_dx": st.column_config.NumberColumn("Label x-offset (m)", format="%d"),
-            "label_dy": st.column_config.NumberColumn("Label y-offset (m)", format="%d"),
-            "label_pos": st.column_config.SelectboxColumn(
-                "Label anchor",
-                options=["right", "left", "above", "below", "above-right",
-                         "above-left", "below-right", "below-left", "centered"],
-            ),
-        },
-        use_container_width=True,
-        key="marker_editor",
-    )
-    st.session_state.markers = edited
-
-    # Category style editor
-    with st.expander("🎨 Category styles"):
-        for cat in list(st.session_state.category_styles.keys()):
-            style = st.session_state.category_styles[cat]
-            c1, c2, c3, c4 = st.columns([2, 1.5, 1, 1])
-            with c1:
-                st.write(f"**{cat}**")
-            with c2:
-                new_shape = st.selectbox(
-                    "Shape", ["star", "circle", "square", "triangle", "diamond"],
-                    index=["star","circle","square","triangle","diamond"].index(style["shape"]),
-                    key=f"shape_{cat}",
-                )
-            with c3:
-                new_color = st.color_picker("Color", style["color"], key=f"color_{cat}")
-            with c4:
-                new_size = st.number_input("Size", 50, 1000, style["size"], step=20, key=f"size_{cat}")
-            # Explicitly write changes back to session state (Streamlit doesn't
-            # auto-propagate mutations inside nested dicts).
-            st.session_state.category_styles[cat] = {
-                "shape": new_shape,
-                "color": new_color,
-                "size": new_size,
-            }
-
-# ---------------- Preview tab ----------------
-with tab_preview:
-    if st.session_state.map_bounds is None:
-        st.info("👈 Set a map area in the sidebar first.")
-    else:
-        st.subheader("Interactive preview")
-        st.caption(
-            "**Drag markers** to reposition. "
-            "**Click on the map** to set a watershed outlet point (then use sidebar). "
-            "Changes here update the marker table."
-        )
-
-        s, w, n, e = st.session_state.map_bounds
-        center = [(s + n) / 2, (w + e) / 2]
-
-        # Build folium map
-        m = folium.Map(location=center, tiles=None, zoom_start=11, control_scale=True)
-        folium.TileLayer(
-            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-            attr="© OpenStreetMap contributors © CARTO",
-            name="CARTO Voyager",
-        ).add_to(m)
-        m.fit_bounds([[s, w], [n, e]])
-
-        # Watersheds (all)
-        for ws in st.session_state.watersheds:
-            folium.GeoJson(
-                ws["geojson"],
-                style_function=lambda x: {
-                    "color": "black", "weight": 2, "fillOpacity": 0.0
-                },
-                name=ws["name"],
-                tooltip=ws["name"],
-            ).add_to(m)
-
-        # Rivers
-        if st.session_state.rivers_geojson:
-            features_to_plot = st.session_state.rivers_geojson["features"]
-            selected = st.session_state.get("selected_rivers", [])
-            if selected:
-                features_to_plot = [
-                    f for f in features_to_plot
-                    if f["properties"].get("gnis_name") in selected
-                ]
-            folium.GeoJson(
-                {"type": "FeatureCollection", "features": features_to_plot},
-                style_function=lambda x: {"color": "#1f5fa8", "weight": 2.5},
-                name="Rivers",
-            ).add_to(m)
-
-        # Draggable markers
-        for idx, row in st.session_state.markers.iterrows():
-            cat_style = st.session_state.category_styles.get(
-                row["category"], st.session_state.category_styles["Other"]
-            )
-            folium.CircleMarker(
-                location=[row["lat"], row["lon"]],
-                radius=8,
-                color="black",
-                weight=1,
-                fill=True,
-                fillColor=cat_style["color"],
-                fillOpacity=1.0,
-                popup=f"<b>{row['name']}</b><br>{row['category']}<br>"
-                      f"({row['lat']:.4f}, {row['lon']:.4f})",
-                tooltip=row["name"],
-            ).add_to(m)
-
-        folium.LayerControl().add_to(m)
-
-        map_data = st_folium(m, width=None, height=600, key="folium_preview",
-                            returned_objects=["last_clicked"])
-        if map_data and map_data.get("last_clicked"):
-            st.session_state.last_clicked = (
-                map_data["last_clicked"]["lat"],
-                map_data["last_clicked"]["lng"],
-            )
-
-        st.divider()
-        st.subheader("Generate proposal-quality preview")
-        if st.button("🖼️ Render high-res preview", type="primary"):
-            st.session_state.show_render = True
-
-        if st.session_state.get("show_render"):
-            with st.spinner("Rendering map..."):
-                try:
-                    fig = render_map(
-                        bounds=st.session_state.map_bounds,
-                        markers=st.session_state.markers,
-                        rivers=st.session_state.rivers_geojson,
-                        watersheds=st.session_state.watersheds,
-                        category_styles=st.session_state.category_styles,
-                        selected_rivers=st.session_state.get("selected_rivers", []),
-                        show_legend=st.session_state.show_legend,
-                        show_scalebar=st.session_state.show_scalebar,
-                        show_north_arrow=st.session_state.show_north_arrow,
-                        basemap_style=st.session_state.basemap,
-                    )
-                    st.pyplot(fig, use_container_width=True)
-                    plt.close(fig)
-                except Exception as ex:
-                    st.error(f"Render failed: {ex}")
-
-# ---------------- Render function ----------------
+# ---------------- Render function (defined before tabs so Preview tab can call it) ----------------
 SHAPE_MARKERS = {
     "star": "*", "circle": "o", "square": "s",
     "triangle": "^", "diamond": "D",
@@ -842,6 +625,282 @@ def render_map(bounds, markers, rivers, watersheds, category_styles,
     return fig
 
 
+# ---------------- Main area: tabs ----------------
+tab_data, tab_preview, tab_export = st.tabs(["📍 Markers", "🗺️ Preview & adjust", "📥 Export"])
+
+# ---------------- Markers tab ----------------
+with tab_data:
+    st.subheader("Markers")
+    st.caption(
+        "Add facilities, sample sites, or anything you want labeled. "
+        "Edit cells directly. Use the **Preview** tab to drag markers and labels."
+    )
+
+    # Quick add
+    with st.expander("➕ Quick add (one at a time)"):
+        c1, c2, c3, c4 = st.columns([2, 1, 1, 1.5])
+        with c1:
+            new_name = st.text_input("Name", key="new_name")
+        with c2:
+            new_lat = st.number_input("Lat", value=0.0, format="%.5f", key="new_lat")
+        with c3:
+            new_lon = st.number_input("Lon", value=0.0, format="%.5f", key="new_lon")
+        with c4:
+            new_cat = st.selectbox(
+                "Category",
+                options=list(st.session_state.category_styles.keys()),
+                key="new_cat",
+            )
+        if st.button("Add marker"):
+            if new_name:
+                new_row = pd.DataFrame([{
+                    "name": new_name,
+                    "lat": new_lat,
+                    "lon": new_lon,
+                    "category": new_cat,
+                    "label_dx": 0.0,
+                    "label_dy": 0.0,
+                    "label_pos": "right",
+                }])
+                st.session_state.markers = pd.concat(
+                    [st.session_state.markers, new_row], ignore_index=True
+                )
+                st.rerun()
+
+    # Bulk paste / CSV
+    with st.expander("📋 Paste a table (name, lat, lon, category)"):
+        st.caption(
+            "Paste from Excel/Google Sheets — first row is header. "
+            "Tab- or comma-separated both work. "
+            "The category column should match one of your category names "
+            "(e.g. 'Treatment facility', 'Sample site') — capitalization and spacing don't matter."
+        )
+        pasted = st.text_area("Paste here", height=150, key="paste_area")
+        if st.button("Add all"):
+            try:
+                df_new = pd.read_csv(io.StringIO(pasted), sep=None, engine="python")
+                # Normalize column names
+                df_new.columns = [str(c).strip().lower() for c in df_new.columns]
+                col_map = {
+                    "name": "name", "label": "name", "site": "name",
+                    "lat": "lat", "latitude": "lat",
+                    "lon": "lon", "lng": "lon", "long": "lon", "longitude": "lon",
+                    "category": "category", "type": "category", "cat": "category",
+                }
+                df_new = df_new.rename(columns={c: col_map.get(c, c) for c in df_new.columns})
+
+                # Strip whitespace from string columns (Excel often leaves trailing spaces/tabs)
+                for col in ("name", "category"):
+                    if col in df_new.columns:
+                        df_new[col] = df_new[col].astype(str).str.strip()
+                        df_new[col] = df_new[col].replace({"nan": "", "None": ""})
+
+                # Build a case-insensitive lookup of valid categories
+                valid_cats = list(st.session_state.category_styles.keys())
+                cat_lookup = {c.lower(): c for c in valid_cats}
+
+                if "category" not in df_new.columns:
+                    df_new["category"] = "Other"
+                else:
+                    # Map each pasted category to the closest valid category (case-insensitive)
+                    def map_cat(val):
+                        if not val or val == "":
+                            return "Other"
+                        return cat_lookup.get(val.strip().lower(), "Other")
+                    df_new["category"] = df_new["category"].apply(map_cat)
+
+                # Surface anything that didn't map cleanly so the user can see it
+                unmapped = []
+                if "category" in df_new.columns:
+                    raw_categories = pd.read_csv(
+                        io.StringIO(pasted), sep=None, engine="python"
+                    )
+                    raw_categories.columns = [str(c).strip().lower() for c in raw_categories.columns]
+                    raw_categories = raw_categories.rename(
+                        columns={c: col_map.get(c, c) for c in raw_categories.columns}
+                    )
+                    if "category" in raw_categories.columns:
+                        raw_set = {
+                            str(v).strip() for v in raw_categories["category"].dropna()
+                            if str(v).strip()
+                        }
+                        unmapped = [
+                            v for v in raw_set
+                            if v.lower() not in cat_lookup
+                        ]
+
+                df_new["label_dx"] = 0.0
+                df_new["label_dy"] = 0.0
+                df_new["label_pos"] = "right"
+                df_new = df_new[["name", "lat", "lon", "category", "label_dx", "label_dy", "label_pos"]]
+                st.session_state.markers = pd.concat(
+                    [st.session_state.markers, df_new], ignore_index=True
+                )
+                st.success(f"Added {len(df_new)} markers.")
+                if unmapped:
+                    st.warning(
+                        f"These category values didn't match any existing category and were "
+                        f"set to 'Other': {', '.join(sorted(unmapped))}. "
+                        f"Valid categories: {', '.join(valid_cats)}."
+                    )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Couldn't parse: {e}")
+
+    # Editable table
+    st.write("**All markers** (edit any cell, or check the box and click Delete to remove rows)")
+    edited = st.data_editor(
+        st.session_state.markers,
+        num_rows="dynamic",
+        column_config={
+            "name": st.column_config.TextColumn("Name", width="medium"),
+            "lat": st.column_config.NumberColumn("Latitude", format="%.5f"),
+            "lon": st.column_config.NumberColumn("Longitude", format="%.5f"),
+            "category": st.column_config.SelectboxColumn(
+                "Category", options=list(st.session_state.category_styles.keys())
+            ),
+            "label_dx": st.column_config.NumberColumn("Label x-offset (m)", format="%d"),
+            "label_dy": st.column_config.NumberColumn("Label y-offset (m)", format="%d"),
+            "label_pos": st.column_config.SelectboxColumn(
+                "Label anchor",
+                options=["right", "left", "above", "below", "above-right",
+                         "above-left", "below-right", "below-left", "centered"],
+            ),
+        },
+        use_container_width=True,
+        key="marker_editor",
+    )
+    st.session_state.markers = edited
+
+    # Category style editor
+    with st.expander("🎨 Category styles"):
+        for cat in list(st.session_state.category_styles.keys()):
+            style = st.session_state.category_styles[cat]
+            c1, c2, c3, c4 = st.columns([2, 1.5, 1, 1])
+            with c1:
+                st.write(f"**{cat}**")
+            with c2:
+                new_shape = st.selectbox(
+                    "Shape", ["star", "circle", "square", "triangle", "diamond"],
+                    index=["star","circle","square","triangle","diamond"].index(style["shape"]),
+                    key=f"shape_{cat}",
+                )
+            with c3:
+                new_color = st.color_picker("Color", style["color"], key=f"color_{cat}")
+            with c4:
+                new_size = st.number_input("Size", 50, 1000, style["size"], step=20, key=f"size_{cat}")
+            # Explicitly write changes back to session state (Streamlit doesn't
+            # auto-propagate mutations inside nested dicts).
+            st.session_state.category_styles[cat] = {
+                "shape": new_shape,
+                "color": new_color,
+                "size": new_size,
+            }
+
+# ---------------- Preview tab ----------------
+with tab_preview:
+    if st.session_state.map_bounds is None:
+        st.info("👈 Set a map area in the sidebar first.")
+    else:
+        st.subheader("Interactive preview")
+        st.caption(
+            "**Drag markers** to reposition. "
+            "**Click on the map** to set a watershed outlet point (then use sidebar). "
+            "Changes here update the marker table."
+        )
+
+        s, w, n, e = st.session_state.map_bounds
+        center = [(s + n) / 2, (w + e) / 2]
+
+        # Build folium map
+        m = folium.Map(location=center, tiles=None, zoom_start=11, control_scale=True)
+        folium.TileLayer(
+            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+            attr="© OpenStreetMap contributors © CARTO",
+            name="CARTO Voyager",
+        ).add_to(m)
+        m.fit_bounds([[s, w], [n, e]])
+
+        # Watersheds (all)
+        for ws in st.session_state.watersheds:
+            folium.GeoJson(
+                ws["geojson"],
+                style_function=lambda x: {
+                    "color": "black", "weight": 2, "fillOpacity": 0.0
+                },
+                name=ws["name"],
+                tooltip=ws["name"],
+            ).add_to(m)
+
+        # Rivers
+        if st.session_state.rivers_geojson:
+            features_to_plot = st.session_state.rivers_geojson["features"]
+            selected = st.session_state.get("selected_rivers", [])
+            if selected:
+                features_to_plot = [
+                    f for f in features_to_plot
+                    if f["properties"].get("gnis_name") in selected
+                ]
+            folium.GeoJson(
+                {"type": "FeatureCollection", "features": features_to_plot},
+                style_function=lambda x: {"color": "#1f5fa8", "weight": 2.5},
+                name="Rivers",
+            ).add_to(m)
+
+        # Draggable markers
+        for idx, row in st.session_state.markers.iterrows():
+            cat_style = st.session_state.category_styles.get(
+                row["category"], st.session_state.category_styles["Other"]
+            )
+            folium.CircleMarker(
+                location=[row["lat"], row["lon"]],
+                radius=8,
+                color="black",
+                weight=1,
+                fill=True,
+                fillColor=cat_style["color"],
+                fillOpacity=1.0,
+                popup=f"<b>{row['name']}</b><br>{row['category']}<br>"
+                      f"({row['lat']:.4f}, {row['lon']:.4f})",
+                tooltip=row["name"],
+            ).add_to(m)
+
+        folium.LayerControl().add_to(m)
+
+        map_data = st_folium(m, width=None, height=600, key="folium_preview",
+                            returned_objects=["last_clicked"])
+        if map_data and map_data.get("last_clicked"):
+            st.session_state.last_clicked = (
+                map_data["last_clicked"]["lat"],
+                map_data["last_clicked"]["lng"],
+            )
+
+        st.divider()
+        st.subheader("Generate proposal-quality preview")
+        if st.button("🖼️ Render high-res preview", type="primary"):
+            st.session_state.show_render = True
+
+        if st.session_state.get("show_render"):
+            with st.spinner("Rendering map..."):
+                try:
+                    fig = render_map(
+                        bounds=st.session_state.map_bounds,
+                        markers=st.session_state.markers,
+                        rivers=st.session_state.rivers_geojson,
+                        watersheds=st.session_state.watersheds,
+                        category_styles=st.session_state.category_styles,
+                        selected_rivers=st.session_state.get("selected_rivers", []),
+                        show_legend=st.session_state.show_legend,
+                        show_scalebar=st.session_state.show_scalebar,
+                        show_north_arrow=st.session_state.show_north_arrow,
+                        basemap_style=st.session_state.basemap,
+                    )
+                    st.pyplot(fig, use_container_width=True)
+                    plt.close(fig)
+                except Exception as ex:
+                    st.error(f"Render failed: {ex}")
+
+# ---------------- Render function ----------------
 # ---------------- Export tab ----------------
 with tab_export:
     st.subheader("Export options")

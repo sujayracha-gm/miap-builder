@@ -67,6 +67,15 @@ The **interactive map** on the Preview tab always shows markers as simple circle
 
 After changing any marker style or label position, click *🖼️ Render high-res preview* (or re-generate the PNG) to see the update.
 
+### Pasting markers from Excel/Sheets
+
+When pasting a table on the **Markers** tab:
+
+- The first row should be the header. Accepted column names: `name` (or `label` / `site`), `lat` (or `latitude`), `lon` (or `lng` / `long` / `longitude`), and `category` (or `type` / `cat`).
+- Tab-separated (direct copy from Excel/Google Sheets) and comma-separated both work.
+- The **category** value just needs to roughly match one of the categories defined in *🎨 Category styles* (defaults: "Treatment facility", "Sample site", "Other"). Capitalization and extra whitespace don't matter — `treatment facility`, `Treatment Facility`, and `TREATMENT FACILITY` all map correctly.
+- If a category value doesn't match any defined category, the marker is set to "Other" and a warning lists the unrecognized values so you can correct them.
+
 ### Save your work
 
 The Export tab has **Save project to JSON** — download a single file containing all your markers, rivers, watershed, and styles. To pick up where you left off, use **Load project from JSON**.
