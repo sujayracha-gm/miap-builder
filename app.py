@@ -54,6 +54,11 @@ with st.expander("📖 How to use this app", expanded=False):
         """
         ### Quick workflow
 
+        **0. Enter your email** *(sidebar, top)*
+        Required for the location search. We send your email as a contact string to
+        OpenStreetMap (the free service that powers the search). No account needed —
+        it's just so they can reach you in the rare case of a problem with your search activity.
+
         **1. Set the map area** *(sidebar)*
         Search a city or address (e.g. *Pasadena, CA*) or paste coordinates as `lat, lon`
         (e.g. `34.05, -118.24`). For tighter framing, search a more specific location.
@@ -63,10 +68,11 @@ with st.expander("📖 How to use this app", expanded=False):
         - **Get rivers (worldwide)** — OpenStreetMap, slower but works globally.
         After loading, expand *Filter to specific rivers* to keep only the ones you want.
 
-        **3. Add a watershed boundary** *(US only)*
+        **3. Add watershed boundaries** *(US only)*
         On the **Preview** tab, click any point on the map (ideally on a river).
-        Then in the sidebar, click *Fetch watershed at clicked point* — the upstream
-        watershed for that location loads automatically.
+        Then in the sidebar, give the watershed a name and click *➕ Add watershed at clicked point* —
+        the upstream watershed for that location loads automatically. Repeat for each
+        watershed you want to add. To remove one, click the ✕ next to its name.
 
         **4. Add markers** *(Markers tab)*
         Three ways:
@@ -128,7 +134,7 @@ def init_state():
         ),
         "map_bounds": None,        # (south, west, north, east) in WGS84
         "rivers_geojson": None,    # GeoJSON dict
-        "watershed_geojson": None, # GeoJSON dict
+        "watersheds": [],          # list of dicts: {"name": str, "geojson": dict, "outlet": (lon, lat)}
         "river_query_result": None,
         "search_query": "",
         "last_clicked": None,
@@ -141,6 +147,7 @@ def init_state():
         "show_scalebar": True,
         "show_north_arrow": True,
         "basemap": "CartoDB.Voyager",
+        "user_email": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -149,29 +156,78 @@ def init_state():
 init_state()
 
 # ---------------- Geocoding & data fetch ----------------
+# Nominatim (OpenStreetMap's free geocoder) asks for a unique User-Agent
+# identifying who's making requests. We collect the user's email at session
+# start and include it. No account or signup required — it's just a contact
+# string in case OSM needs to reach the user about abuse.
+# Policy: https://operations.osmfoundation.org/policies/nominatim/
+
+def _build_user_agent():
+    email = st.session_state.get("user_email", "").strip() or "anonymous@river-site-mapper"
+    return f"river-site-mapper/1.0 ({email})"
+
+
 @st.cache_data(show_spinner=False, ttl=3600)
-def geocode(query: str):
-    """Use Nominatim (OpenStreetMap) to look up a place name."""
+def geocode(query: str, ua: str):
+    """Look up a place name. Tries Nominatim first, then Photon as a fallback.
+
+    `ua` is included in the cache key so different users get separate caches.
+    """
+    import time
+
+    # ---- Try Nominatim (primary) ----
     try:
+        # Nominatim asks for ≤1 req/sec — small sleep helps when users click fast
+        time.sleep(1.1)
         r = requests.get(
             "https://nominatim.openstreetmap.org/search",
             params={"q": query, "format": "json", "limit": 1},
-            headers={"User-Agent": "river-site-mapper/1.0"},
+            headers={"User-Agent": ua, "Accept-Language": "en"},
+            timeout=10,
+        )
+        if r.status_code == 200 and r.json():
+            item = r.json()[0]
+            return {
+                "lat": float(item["lat"]),
+                "lon": float(item["lon"]),
+                "bbox": [float(x) for x in item["boundingbox"]],
+                "display_name": item["display_name"],
+            }
+        # If 429 or empty, fall through to fallback
+    except Exception:
+        pass  # try fallback
+
+    # ---- Fallback: Photon (Komoot, also free, no rate limit issues) ----
+    try:
+        r = requests.get(
+            "https://photon.komoot.io/api",
+            params={"q": query, "limit": 1},
             timeout=10,
         )
         r.raise_for_status()
         data = r.json()
-        if not data:
+        if not data.get("features"):
             return None
-        item = data[0]
+        feat = data["features"][0]
+        lon, lat = feat["geometry"]["coordinates"]
+        props = feat["properties"]
+        # Photon doesn't return a bbox by default; build one ~50km wide
+        d = 0.5
+        if "extent" in props:
+            # extent is [minLon, maxLat, maxLon, minLat]
+            ext = props["extent"]
+            bbox = [ext[3], ext[1], ext[0], ext[2]]  # [s, n, w, e]
+        else:
+            bbox = [lat - d, lat + d, lon - d, lon + d]
+        name_parts = [props.get(k) for k in ("name", "city", "state", "country") if props.get(k)]
         return {
-            "lat": float(item["lat"]),
-            "lon": float(item["lon"]),
-            "bbox": [float(x) for x in item["boundingbox"]],  # [s, n, w, e]
-            "display_name": item["display_name"],
+            "lat": lat,
+            "lon": lon,
+            "bbox": bbox,
+            "display_name": ", ".join(name_parts) or query,
         }
     except Exception as e:
-        st.error(f"Geocoding failed: {e}")
+        st.error(f"Geocoding failed (both Nominatim and Photon): {e}")
         return None
 
 
@@ -264,6 +320,21 @@ def fetch_watershed_usgs(lon: float, lat: float):
 
 # ---------------- Sidebar: map area & data ----------------
 with st.sidebar:
+    st.header("👤 Your info")
+    st.session_state.user_email = st.text_input(
+        "Your email",
+        value=st.session_state.get("user_email", ""),
+        placeholder="you@example.com",
+        help=(
+            "Required for the location search. We send this as a contact string "
+            "to OpenStreetMap so they can reach you if there's a problem with "
+            "your search activity. No account or signup is needed."
+        ),
+    )
+    if not st.session_state.user_email.strip():
+        st.caption("⚠️ Add your email above before using location search.")
+    st.divider()
+
     st.header("1. Map area")
     search = st.text_input(
         "Search location",
@@ -282,13 +353,16 @@ with st.sidebar:
                 st.session_state.map_bounds = (lat-d, lon-d, lat+d, lon+d)
                 st.success(f"Centered on ({lat:.4f}, {lon:.4f})")
         except Exception:
-            result = geocode(search)
-            if result:
-                s, n, w, e = result["bbox"]
-                st.session_state.map_bounds = (s, w, n, e)
-                st.success(f"Found: {result['display_name'][:60]}")
+            if not st.session_state.user_email.strip():
+                st.error("Please add your email at the top of the sidebar before searching.")
             else:
-                st.error("Location not found. Try a different search.")
+                result = geocode(search, _build_user_agent())
+                if result:
+                    s, n, w, e = result["bbox"]
+                    st.session_state.map_bounds = (s, w, n, e)
+                    st.success(f"Found: {result['display_name'][:60]}")
+                else:
+                    st.error("Location not found. Try a different search.")
 
     st.divider()
     st.header("2. Add layers")
@@ -332,21 +406,50 @@ with st.sidebar:
                     )
 
         st.divider()
-        st.subheader("Watershed (US only)")
-        st.caption("Click the preview map to set the watershed outlet point.")
+        st.subheader("Watersheds (US only)")
+        st.caption(
+            "Click the preview map to set an outlet point, then add a watershed below. "
+            "You can add as many as you need — each one is the upstream basin of its "
+            "clicked point."
+        )
         if st.session_state.last_clicked:
             lat_c, lon_c = st.session_state.last_clicked
-            st.write(f"📍 Clicked: ({lat_c:.4f}, {lon_c:.4f})")
-            if st.button("Fetch watershed at clicked point", use_container_width=True):
+            st.write(f"📍 Last clicked: ({lat_c:.4f}, {lon_c:.4f})")
+            ws_name = st.text_input(
+                "Watershed name (optional)",
+                value=f"Watershed {len(st.session_state.watersheds) + 1}",
+                key="new_ws_name",
+            )
+            if st.button("➕ Add watershed at clicked point", use_container_width=True):
                 with st.spinner("Computing upstream watershed..."):
                     ws = fetch_watershed_usgs(lon_c, lat_c)
                     if ws:
-                        st.session_state.watershed_geojson = ws
-                        st.success("Watershed loaded.")
+                        st.session_state.watersheds.append({
+                            "name": ws_name or f"Watershed {len(st.session_state.watersheds) + 1}",
+                            "geojson": ws,
+                            "outlet": (lon_c, lat_c),
+                        })
+                        st.success(f"Added '{ws_name}'.")
+                        st.rerun()
                     else:
-                        st.error("Couldn't fetch watershed (US only).")
-        if st.session_state.watershed_geojson and st.button("Clear watershed", use_container_width=True):
-            st.session_state.watershed_geojson = None
+                        st.error("Couldn't fetch watershed (US only, near a river).")
+
+        # Show added watersheds with remove buttons
+        if st.session_state.watersheds:
+            st.markdown("**Added watersheds:**")
+            for i, ws in enumerate(st.session_state.watersheds):
+                col_a, col_b = st.columns([4, 1])
+                with col_a:
+                    olat = ws["outlet"][1]
+                    olon = ws["outlet"][0]
+                    st.write(f"• {ws['name']}  ({olat:.3f}, {olon:.3f})")
+                with col_b:
+                    if st.button("✕", key=f"rm_ws_{i}", help=f"Remove {ws['name']}"):
+                        st.session_state.watersheds.pop(i)
+                        st.rerun()
+            if st.button("Clear all watersheds", use_container_width=True):
+                st.session_state.watersheds = []
+                st.rerun()
 
 # ---------------- Main area: tabs ----------------
 tab_data, tab_preview, tab_export = st.tabs(["📍 Markers", "🗺️ Preview & adjust", "📥 Export"])
@@ -487,14 +590,15 @@ with tab_preview:
         ).add_to(m)
         m.fit_bounds([[s, w], [n, e]])
 
-        # Watershed
-        if st.session_state.watershed_geojson:
+        # Watersheds (all)
+        for ws in st.session_state.watersheds:
             folium.GeoJson(
-                st.session_state.watershed_geojson,
+                ws["geojson"],
                 style_function=lambda x: {
                     "color": "black", "weight": 2, "fillOpacity": 0.0
                 },
-                name="Watershed",
+                name=ws["name"],
+                tooltip=ws["name"],
             ).add_to(m)
 
         # Rivers
@@ -552,7 +656,7 @@ with tab_preview:
                         bounds=st.session_state.map_bounds,
                         markers=st.session_state.markers,
                         rivers=st.session_state.rivers_geojson,
-                        watershed=st.session_state.watershed_geojson,
+                        watersheds=st.session_state.watersheds,
                         category_styles=st.session_state.category_styles,
                         selected_rivers=st.session_state.get("selected_rivers", []),
                         show_legend=st.session_state.show_legend,
@@ -585,7 +689,7 @@ LABEL_OFFSETS_BY_POS = {
 }
 
 
-def render_map(bounds, markers, rivers, watershed, category_styles,
+def render_map(bounds, markers, rivers, watersheds, category_styles,
                selected_rivers, show_legend, show_scalebar, show_north_arrow,
                basemap_style):
     """Render the publication map and return the figure."""
@@ -630,9 +734,9 @@ def render_map(bounds, markers, rivers, watershed, category_styles,
     cx.add_basemap(ax, source=provider_map.get(basemap_style, cx.providers.CartoDB.Voyager),
                    attribution_size=6)
 
-    # Watershed
-    if watershed:
-        ws_gdf = gpd.GeoDataFrame.from_features(watershed["features"], crs="EPSG:4326").to_crs(WM)
+    # Watersheds (all)
+    for ws in (watersheds or []):
+        ws_gdf = gpd.GeoDataFrame.from_features(ws["geojson"]["features"], crs="EPSG:4326").to_crs(WM)
         ws_gdf.boundary.plot(ax=ax, color="black", linewidth=1.6, zorder=3)
 
     # Rivers
@@ -701,7 +805,7 @@ def render_map(bounds, markers, rivers, watershed, category_styles,
     # Legend
     if show_legend:
         elements = []
-        if watershed:
+        if watersheds:
             elements.append(Line2D([0], [0], color="black", lw=1.6, label="Watershed boundary"))
         if rivers:
             elements.append(Line2D([0], [0], color="#1f5fa8", lw=2, label="River"))
@@ -758,7 +862,7 @@ with tab_export:
                         bounds=st.session_state.map_bounds,
                         markers=st.session_state.markers,
                         rivers=st.session_state.rivers_geojson,
-                        watershed=st.session_state.watershed_geojson,
+                        watersheds=st.session_state.watersheds,
                         category_styles=st.session_state.category_styles,
                         selected_rivers=st.session_state.get("selected_rivers", []),
                         show_legend=st.session_state.show_legend,
@@ -792,7 +896,7 @@ with tab_export:
             "map_bounds": st.session_state.map_bounds,
             "markers": st.session_state.markers.to_dict(orient="records"),
             "rivers_geojson": st.session_state.rivers_geojson,
-            "watershed_geojson": st.session_state.watershed_geojson,
+            "watersheds": st.session_state.watersheds,
             "selected_rivers": st.session_state.get("selected_rivers", []),
             "category_styles": st.session_state.category_styles,
         }
@@ -810,7 +914,17 @@ with tab_export:
             st.session_state.map_bounds = tuple(project["map_bounds"])
             st.session_state.markers = pd.DataFrame(project["markers"])
             st.session_state.rivers_geojson = project.get("rivers_geojson")
-            st.session_state.watershed_geojson = project.get("watershed_geojson")
+            # Backwards compatibility: old projects had a single watershed_geojson
+            if "watersheds" in project:
+                st.session_state.watersheds = project["watersheds"]
+            elif project.get("watershed_geojson"):
+                st.session_state.watersheds = [{
+                    "name": "Watershed 1",
+                    "geojson": project["watershed_geojson"],
+                    "outlet": (0.0, 0.0),
+                }]
+            else:
+                st.session_state.watersheds = []
             st.session_state.selected_rivers = project.get("selected_rivers", [])
             if "category_styles" in project:
                 st.session_state.category_styles = project["category_styles"]
